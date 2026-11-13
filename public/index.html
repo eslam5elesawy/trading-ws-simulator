@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saudi Stocks – Live (simulator)</title>
+<style>
+  :root {
+    --green: #137a3a; --green-dark: #0d6430; --up: #16a34a; --down: #dc2626;
+    --bg: #f3f4f6; --card: #fff; --line: #e5e7eb; --muted: #6b7280; --text: #111827;
+    --flash-up: #dcfce7; --flash-down: #fee2e2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .logo { font-weight: 800; color: var(--green); white-space: nowrap; }
+  .logo small { display: block; font-weight: 400; font-size: 10px; color: var(--muted); }
+  header input { flex: 1; max-width: 460px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: #f9fafb; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--down); }
+  .dot.on { background: var(--up); }
+  .ticker { position: sticky; top: 57px; z-index: 2; overflow: hidden; white-space: nowrap; background: var(--card); border-bottom: 1px solid var(--line); padding: 10px 0; }
+  .ticker-track { display: inline-flex; gap: 28px; padding-left: 16px; animation: scroll 60s linear infinite; }
+  .ticker span b { color: var(--green); margin-right: 6px; font-weight: 600; }
+  @keyframes scroll { to { transform: translateX(-50%); } }
+  main { max-width: 1400px; margin: 0 auto; padding: 20px 16px 40px; }
+  .card { background: var(--card); border-radius: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 20px 22px; margin-bottom: 20px; }
+  .summary-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  h2 { margin: 0; font-size: 20px; }
+  .gl { display: flex; gap: 22px; font-size: 12px; color: var(--muted); }
+  .gl b { display: block; color: var(--text); font-size: 15px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .tile { background: #f3f4f6; border-radius: 10px; padding: 14px 16px; }
+  .tile .label { color: var(--muted); font-size: 13px; }
+  .tile .value { font-size: 24px; font-weight: 700; margin: 4px 0; }
+  .tile .note { color: var(--green); font-size: 12px; }
+  .table-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+  .table-head h2 { margin-right: auto; }
+  .table-head input, .table-head select { padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: #f9fafb; min-width: 200px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 900px; }
+  thead th { background: #f3f4f6; text-align: left; font-weight: 600; color: #374151; padding: 12px; font-size: 13px; }
+  tbody td { padding: 12px; border-bottom: 1px solid var(--line); transition: background-color .6s; }
+  td.sym, td.code { color: var(--green); font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  td.flash-up { background: var(--flash-up); transition: none; }
+  td.flash-down { background: var(--flash-down); transition: none; }
+  .foot { text-align: center; color: var(--muted); font-size: 12px; }
+  @media (max-width: 640px) { header input { display: none; } .ticker { top: 53px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">K^Wealth<small>Your key to wealth</small></div>
+  <input id="topSearch" placeholder="Search by symbol or company name...">
+  <div class="status"><span id="dot" class="dot"></span><span id="statusText">Connecting…</span></div>
+</header>
+<div class="ticker"><div class="ticker-track" id="ticker"></div></div>
+
+<main>
+  <section class="card">
+    <div class="summary-head">
+      <h2>Market Summary</h2>
+      <div class="gl">
+        <div><span class="up">↗ Gainers</span><b id="gainers">–</b></div>
+        <div><span class="down">↘ Losers</span><b id="losers">–</b></div>
+      </div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="label">Total Volume</div><div class="value" id="totalVolume">–</div><div class="note">Updated</div></div>
+      <div class="tile"><div class="label">Market Cap</div><div class="value" id="marketCap">–</div><div class="note">Updated</div></div>
+      <div class="tile"><div class="label">Active Stocks</div><div class="value" id="active">–</div><div class="note">Listed stocks</div></div>
+      <div class="tile"><div class="label">Live rows</div><div class="value" id="liveRows">–</div><div class="note">Subscribed (on screen)</div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="table-head">
+      <h2>Saudi Stocks Overview</h2>
+      <input id="search" placeholder="Search by name or symbol">
+      <select id="sector"><option value="">All Sectors</option></select>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Code</th><th>Company Name</th><th>Sector</th><th>Price (SAR)</th>
+          <th>Change (SAR)</th><th>Change %</th><th>Volume</th><th>Market Cap</th><th>Bid</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+  <p class="foot">Simulated data for testing. Prices are generated; company details come from a snapshot when configured.</p>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const compact = (v) => {
+  if (v == null) return '–';
+  const a = Math.abs(v);
+  for (const [d, s] of [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']]) if (a >= d) return (v / d).toFixed(2) + s;
+  return v.toFixed(2);
+};
+const fix = (v) => (v == null ? '–' : v.toFixed(2));
+const sign = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
+const prettySector = (s) => (s ?? '--').replaceAll('_', ' '); // 'CAPITAL_GOODS' -> 'CAPITAL GOODS'
+
+const rowsByKey = new Map(); // key -> { data, tr, cells }
+const visible = new Set();   // keys whose <tr> is on screen right now
+let ws;
+
+// ---- table rendering ----
+function buildRow(r) {
+  const tr = document.createElement('tr');
+  tr.dataset.key = r.key;
+  tr.innerHTML = `<td class="sym"></td><td class="code"></td><td></td><td></td><td class="num"></td>
+    <td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>`;
+  const c = tr.children;
+  c[0].textContent = r.symbol; c[1].textContent = r.code; c[2].textContent = r.name; c[3].textContent = prettySector(r.sector);
+  c[8].textContent = compact(r.marketCap);
+  const entry = { data: r, tr, cells: { price: c[4], change: c[5], pct: c[6], volume: c[7], bid: c[9] } };
+  paint(entry, false);
+  return entry;
+}
+
+function paint(entry, flash) {
+  const { data: d, cells } = entry;
+  cells.price.textContent = fix(d.price);
+  cells.change.textContent = d.change == null ? '–' : `${fix(d.change)} ${d.change > 0 ? '↗' : d.change < 0 ? '↘' : ''}`;
+  cells.pct.textContent = d.changePercent == null ? '–' : `${fix(d.changePercent)}%`;
+  cells.volume.textContent = compact(d.volume);
+  cells.bid.textContent = fix(d.bid);
+  cells.change.className = cells.pct.className = 'num ' + sign(d.change);
+  if (!flash) return;
+  // flash = previous values; each cell flashes green/red by its own direction, only if it changed.
+  for (const [field, cell] of [['price', cells.price], ['change', cells.change], ['changePercent', cells.pct], ['volume', cells.volume], ['bid', cells.bid]]) {
+    const before = flash[field];
+    if (before == null || d[field] == null || d[field] === before) continue;
+    const cls = d[field] > before ? 'flash-up' : 'flash-down';
+    cell.classList.add(cls);
+    setTimeout(() => cell.classList.remove(cls), 400);
+  }
+}
+
+// ---- which rows are on screen -> tell the server ----
+const observer = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    const key = e.target.dataset.key;
+    if (e.isIntersecting) visible.add(key); else visible.delete(key);
+  }
+  scheduleSubscribe();
+}, { rootMargin: '200px 0px' }); // a little margin so rows are fresh just before they scroll in
+
+let subTimer;
+function scheduleSubscribe() {
+  clearTimeout(subTimer);
+  subTimer = setTimeout(() => { // debounce: one message after scrolling settles, not one per pixel
+    const keys = [...visible, ...tickerKeys];
+    $('liveRows').textContent = visible.size;
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'subscribe', keys }));
+  }, 150);
+}
+
+// ---- ticker (first 20 stocks, also subscribed) ----
+let tickerKeys = [];
+function renderTicker() {
+  const items = tickerKeys.map((k) => {
+    const d = rowsByKey.get(k).data;
+    return `<span><b>${d.symbol}</b>${fix(d.price)} <span class="${sign(d.change)}">${d.change >= 0 ? '↗' : '↘'} ${fix(Math.abs(d.changePercent ?? 0))}%</span></span>`;
+  }).join('');
+  $('ticker').innerHTML = items + items; // doubled so the CSS loop is seamless
+}
+
+// ---- filters ----
+function applyFilters() {
+  const q = ($('search').value || $('topSearch').value).trim().toLowerCase();
+  const sector = $('sector').value;
+  for (const { data: d, tr } of rowsByKey.values()) {
+    const match = (!sector || d.sector === sector) &&
+      (!q || d.symbol.toLowerCase().includes(q) || d.code.includes(q) || (d.name ?? '').toLowerCase().includes(q));
+    tr.hidden = !match;
+  }
+}
+['search', 'topSearch'].forEach((id) => $(id).addEventListener('input', applyFilters));
+$('sector').addEventListener('change', applyFilters);
+
+// ---- summary ----
+function renderSummary(s) {
+  if (!s) return;
+  $('gainers').textContent = s.gainers; $('losers').textContent = s.losers;
+  $('totalVolume').textContent = compact(s.totalVolume);
+  $('marketCap').textContent = compact(s.marketCap) + ' SAR';
+  $('active').textContent = s.active;
+}
+
+// ---- socket ----
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => { $('dot').classList.add('on'); $('statusText').textContent = 'Live'; };
+  ws.onclose = () => {
+    $('dot').classList.remove('on'); $('statusText').textContent = 'Reconnecting…';
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'snapshot') onSnapshot(msg);
+    else if (msg.type === 'batch') onBatch(msg);
+  };
+}
+
+function onSnapshot({ rows, summary }) {
+  observer.disconnect();
+  rowsByKey.clear(); visible.clear();
+  const frag = document.createDocumentFragment();
+  for (const r of rows) {
+    const entry = buildRow(r);
+    rowsByKey.set(r.key, entry);
+    frag.appendChild(entry.tr);
+  }
+  $('rows').replaceChildren(frag);
+  for (const { tr } of rowsByKey.values()) observer.observe(tr);
+
+  const sectors = [...new Set(rows.map((r) => r.sector))].sort();
+  $('sector').innerHTML = '<option value="">All Sectors</option>' + sectors.map((s) => `<option value="${s}">${prettySector(s)}</option>`).join('');
+  tickerKeys = rows.slice(0, 20).map((r) => r.key);
+  renderTicker();
+  renderSummary(summary);
+  applyFilters();
+}
+
+let tickerDirty = false;
+function onBatch({ rows, summary }) {
+  for (const u of rows) {
+    const entry = rowsByKey.get(u.key);
+    if (!entry) continue;
+    const prev = { ...entry.data };
+    Object.assign(entry.data, u);
+    paint(entry, prev);
+    if (tickerKeys.includes(u.key)) tickerDirty = true;
+  }
+  if (tickerDirty) { renderTicker(); tickerDirty = false; }
+  renderSummary(summary);
+}
+
+connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "trading-ws-simulator",
+  "version": "1.0.0",
+  "description": "Simulated Saudi stock trading feed: dummy providers -> Node/Express service -> WebSocket (visible-rows batches) + Firebase Realtime DB, with a live stocks web page.",
+  "scripts": {
+    "test": "node src/models/stock-quote.js && node src/models/stock-record.js && node scripts/check-live-feed.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "fetch-real": "node scripts/fetch-real-stocks.js"
+  },
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "express": "^5.3.0",
+    "firebase-admin": "^14.5.1",
+    "ws": "^8.23.0"
+  },
+  "private": "true",
+  "engines": {
+    "node": ">=22.9"
+  }
+}
