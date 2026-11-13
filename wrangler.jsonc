@@ -1,0 +1,21 @@
+// Cloudflare Worker config. Deploy: npm run cf:deploy (free plan, no card needed).
+{
+  "name": "trading-ws-simulator",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"], // node:events for the providers
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/ws", "/health"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "MARKET", "class_name": "Market" }]
+  },
+  // The free plan only allows SQLite-backed Durable Objects.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Market"] }],
+  "vars": {
+    "TICKS_PER_SECOND": "3000",
+    "STOCK_COUNT": "3000"
+  }
+}

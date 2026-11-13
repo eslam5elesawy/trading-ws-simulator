@@ -1,11 +1,16 @@
 // Copies real company details from a Firebase stocks node into data/real-stocks.json.
 // Run: REAL_STOCKS_URL=https://<db>/REAL_TIME/stocks.json npm run fetch-real
 // The URL is not in the code on purpose (public repo); without it the server uses generated stocks only.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+
+const OUT = new URL('../data/real-stocks.json', import.meta.url);
+mkdirSync(new URL('../data/', import.meta.url), { recursive: true });
 
 const SOURCE = process.env.REAL_STOCKS_URL;
 if (!SOURCE) {
-  console.warn('REAL_STOCKS_URL not set: skipping real stock snapshot (server will use generated stocks).');
+  // Leave an empty list so bundlers (Cloudflare Worker) always find the file.
+  if (!existsSync(OUT)) writeFileSync(OUT, '[]');
+  console.warn('REAL_STOCKS_URL not set: keeping existing snapshot or none (generated stocks only).');
   process.exit(0);
 }
 // Static company fields only; live prices come from our trade feed.
@@ -31,6 +36,5 @@ for (const [key, node] of Object.entries(all)) {
   stocks.push({ details, close });
 }
 stocks.sort((a, b) => a.details.symbol.localeCompare(b.details.symbol));
-mkdirSync(new URL('../data/', import.meta.url), { recursive: true });
-writeFileSync(new URL('../data/real-stocks.json', import.meta.url), JSON.stringify(stocks));
+writeFileSync(OUT, JSON.stringify(stocks));
 console.log(`saved ${stocks.length} of ${Object.keys(all).length} stocks`);

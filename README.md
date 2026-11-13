@@ -37,8 +37,8 @@ This writes `data/real-stocks.json`, which is git-ignored. The server fills the 
 | Details provider | `src/provider/dummy-details-provider.js` | Sends company details (name, sector, market cap, ratios) once at startup. |
 | Instruments | `src/provider/instruments.js` | The stock list both providers share: real stocks from `data/`, then generated ones. |
 | Normalize | `src/models/stock-quote.js` | Turns a raw tick into a flat quote. Invalid ticks are dropped. |
-| Join | `src/server.js` | Matches each tick to its company using the ISIN (`requestedId` ↔ `isin`). |
-| Live feed | `src/services/live-feed.js` | The WebSocket server: snapshot, subscriptions and per-second batches. |
+| Market pipeline | `src/core/market.js` | providers → normalize → join, shared by Node and Cloudflare |
+| Live feed | `src/core/live-feed-core.js` (+ `src/services/live-feed.js` for Node, `cloudflare/worker.js` for Cloudflare) | Snapshot, subscriptions and per-second batches. The core has no transport code. |
 | Firebase writer | `src/services/firebase-writer.js` | Optional. Buffers updates and sends one multi-path update per second. |
 | Web page | `public/index.html` | Stocks table, market summary and ticker. Every changed number flashes. |
 
@@ -87,22 +87,29 @@ All settings are optional environment variables; see `.env.example`.
 - `GET /health` – status, tick counts, connected clients, subscriptions per client, Firebase stats
 - `WS /ws` – the live feed
 
-## Deploy (Hugging Face Spaces, free, no card)
+## Live demo
 
-1. Create a new Space with the **Docker** SDK (blank template).
-2. Replace the Space's `README.md` and `Dockerfile` with the files in `deploy/huggingface/`. That Dockerfile clones this repo, so the Space needs nothing else.
-3. Optionally, add `REAL_STOCKS_URL` under Space **Settings → Variables** to show real company names.
-4. Open `https://<user>-<space>.hf.space`. To deploy a new version from GitHub, use **Settings → Factory rebuild**.
+**https://trading-ws-simulator.eslam5elesawy.workers.dev** (WebSocket: `wss://trading-ws-simulator.eslam5elesawy.workers.dev/ws`, status: `/health`)
 
-Any other Docker host can use the root `Dockerfile`.
+## Deploy (Cloudflare Workers, free, no card)
 
-## Deploy (Render, free; asks for a card)
+The same simulator runs as a Cloudflare Worker (`cloudflare/worker.js`). The page is served as static assets, and the live feed runs in one **Durable Object**, so every client sees the same market.
 
-1. In Render, choose **New → Blueprint** and pick this repo. `render.yaml` creates the web service.
-2. Optionally, set `REAL_STOCKS_URL` in the service's environment settings to show real company names.
-3. Open the service URL. The page connects to `wss://<service>/ws` automatically.
+```bash
+npx wrangler login                     # once, in the browser
+REAL_STOCKS_URL=... npm run cf:deploy  # bundles data/real-stocks.json; without the URL, uses the existing snapshot or generated stocks
+npm run cf:dev                         # run it locally in Cloudflare's runtime
+```
 
-The free plan sleeps after 15 minutes without traffic, so the first visit after that takes about 30 seconds.
+- The market only runs while a client is connected, to stay within the free plan's daily limits.
+- Measured on the free plan: about 2,800 ticks/s, with one batch per second per client.
+- Firebase writes are Node-only, so this version doesn't write to Firebase.
+- Settings (`TICKS_PER_SECOND`, `STOCK_COUNT`) are under `vars` in `wrangler.jsonc`.
+
+## Other hosts
+
+- **Any Docker host:** use the root `Dockerfile`. The server listens on `$PORT`.
+- **Render:** `render.yaml` sets up a free web service, but Render asks for a card to verify your identity.
 
 ## Flutter app
 

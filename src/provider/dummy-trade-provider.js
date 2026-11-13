@@ -1,12 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { INSTRUMENTS as UNIVERSE } from './instruments.js';
-
-const template = JSON.parse(readFileSync(new URL('./sample-tick.json', import.meta.url)));
-
-// The trade provider only knows ids and prices, never names/sectors (that's the details provider's job).
-const INSTRUMENTS = UNIVERSE.map((u) => ({ requestedId: u.details.isin, close: u.close }));
+import template from './sample-tick.json' with { type: 'json' };
 
 const round = (n, d = 2) => Number(n.toFixed(d));
 
@@ -19,6 +12,14 @@ function riyadhTimestamp(date = new Date()) {
 export class DummyTradeProvider extends EventEmitter {
   #state = new Map(); // requestedId -> latest tick we sent
   #timer;
+  #instruments;
+
+  /** @param universe instruments from buildInstruments(); only ids and prices are used here */
+  constructor(universe) {
+    super();
+    // The trade provider only knows ids and prices, never names/sectors (that's the details provider's job).
+    this.#instruments = universe.map((u) => ({ requestedId: u.details.isin, close: u.close }));
+  }
 
   start(ticksPerSecond = 50) {
     // Timers can't fire 1000s of times a second, so emit a burst every 100ms instead.
@@ -27,7 +28,7 @@ export class DummyTradeProvider extends EventEmitter {
     let cursor = 0;
     this.#timer = setInterval(() => {
       for (let i = 0; i < perBurst; i++) {
-        const inst = INSTRUMENTS[cursor++ % INSTRUMENTS.length];
+        const inst = this.#instruments[cursor++ % this.#instruments.length];
         this.emit('message', { data: { startStream: [this.#nextTick(inst)] } });
       }
     }, 100);
@@ -54,7 +55,7 @@ export class DummyTradeProvider extends EventEmitter {
 
     const tick = {
       ...structuredClone(prev ?? template),
-      streamId: prev?.streamId ?? randomUUID(),
+      streamId: prev?.streamId ?? crypto.randomUUID(),
       type: prev ? 'UPDATE' : 'START', // shortcut: 'UPDATE' is a guess at the real feed's follow-up type, confirm with a real stream
       requestedId,
       close: { value: close, timestamp: template.close.timestamp },
@@ -80,13 +81,3 @@ export class DummyTradeProvider extends EventEmitter {
   }
 }
 
-// Run directly to watch the raw feed: node src/provider/dummy-trade-provider.js
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const p = new DummyTradeProvider();
-  p.on('message', (msg) => {
-    const t = msg.data.startStream[0];
-    console.log(t.type, t.requestedId, t.last.value, t.percentageChangeLast.value + '%', t.last.timestamp);
-  });
-  p.start(5);
-  setTimeout(() => p.stop(), 2000);
-}

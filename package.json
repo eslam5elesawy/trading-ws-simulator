@@ -5,7 +5,9 @@
   "scripts": {
     "test": "node src/models/stock-quote.js && node src/models/stock-record.js && node scripts/check-live-feed.js",
     "start": "node --env-file-if-exists=.env src/server.js",
-    "fetch-real": "node scripts/fetch-real-stocks.js"
+    "fetch-real": "node scripts/fetch-real-stocks.js",
+    "cf:dev": "npm run fetch-real && wrangler dev",
+    "cf:deploy": "npm run fetch-real && wrangler deploy"
   },
   "license": "UNLICENSED",
   "type": "module",
@@ -17,5 +19,8 @@
   "private": "true",
   "engines": {
     "node": ">=22.9"
+  },
+  "devDependencies": {
+    "wrangler": "^4.161.0"
   }
 }
