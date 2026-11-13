@@ -87,7 +87,16 @@ All settings are optional environment variables; see `.env.example`.
 - `GET /health` – status, tick counts, connected clients, subscriptions per client, Firebase stats
 - `WS /ws` – the live feed
 
-## Deploy (Render, free)
+## Deploy (Hugging Face Spaces, free, no card)
+
+1. Create a new Space with the **Docker** SDK (blank template).
+2. Replace the Space's `README.md` and `Dockerfile` with the files in `deploy/huggingface/`. That Dockerfile clones this repo, so the Space needs nothing else.
+3. Optionally, add `REAL_STOCKS_URL` under Space **Settings → Variables** to show real company names.
+4. Open `https://<user>-<space>.hf.space`. To deploy a new version from GitHub, use **Settings → Factory rebuild**.
+
+Any other Docker host can use the root `Dockerfile`.
+
+## Deploy (Render, free; asks for a card)
 
 1. In Render, choose **New → Blueprint** and pick this repo. `render.yaml` creates the web service.
 2. Optionally, set `REAL_STOCKS_URL` in the service's environment settings to show real company names.
