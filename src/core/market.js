@@ -20,9 +20,9 @@ export const liveRow = (quote) => ({
 
 /**
  * @param instruments from buildInstruments()
- * @param handlers { onDetails(key, details), onQuote(key, quote) }
+ * @param handlers { onDetails(key, details), onQuote(key, quote), onSession?() }
  */
-export function createMarket(instruments, { onDetails, onQuote }) {
+export function createMarket(instruments, { onDetails, onQuote, onSession = () => {} }) {
   const detailsByIsin = new Map(); // join table: trade feed's requestedId === details' isin
   const detailsProvider = new DummyDetailsProvider(instruments);
   const tradeProvider = new DummyTradeProvider(instruments);
@@ -51,10 +51,12 @@ export function createMarket(instruments, { onDetails, onQuote }) {
     }
   });
 
+  tradeProvider.on('session', onSession); // new trading day: closes rolled forward, totals reset
+
   return {
-    start(ticksPerSecond) {
+    start(ticksPerSecond, { sessionMinutes } = {}) {
       detailsProvider.start(); // details first, so the first ticks can be joined
-      tradeProvider.start(ticksPerSecond);
+      tradeProvider.start(ticksPerSecond, { sessionMinutes });
     },
     stop() {
       tradeProvider.stop();

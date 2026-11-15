@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "description": "Simulated Saudi stock trading feed: dummy providers -> Node/Express service -> WebSocket (visible-rows batches) + Firebase Realtime DB, with a live stocks web page.",
   "scripts": {
-    "test": "node src/models/stock-quote.js && node src/models/stock-record.js && node scripts/check-live-feed.js",
+    "test": "node --test",
     "start": "node --env-file-if-exists=.env src/server.js",
     "fetch-real": "node scripts/fetch-real-stocks.js",
     "cf:dev": "npm run fetch-real && wrangler dev",
-    "cf:deploy": "npm run fetch-real && wrangler deploy"
+    "cf:deploy": "npm run fetch-real && wrangler deploy",
+    "firebase:cleanup": "node --env-file-if-exists=.env scripts/firebase-cleanup.js"
   },
   "license": "UNLICENSED",
   "type": "module",
@@ -16,7 +17,7 @@
     "firebase-admin": "^14.5.1",
     "ws": "^8.23.0"
   },
-  "private": "true",
+  "private": true,
   "engines": {
     "node": ">=22.9"
   },

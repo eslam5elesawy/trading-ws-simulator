@@ -1,10 +1,18 @@
-// Values come from environment variables (e.g. `PORT=9000 npm start`), with sensible defaults.
+// All settings come from environment variables (e.g. `PORT=9000 npm start`); see .env.example.
+import { readSettings } from './core/settings.js';
+
+const SANDBOX_PATH = 'SIMULATOR/stocks';
+const stocksPath = process.env.FIREBASE_STOCKS_PATH || SANDBOX_PATH;
+// Writing outside the sandbox can overwrite real data (e.g. a staging app's stocks), so it must be asked for.
+if (!stocksPath.startsWith('SIMULATOR/') && process.env.FIREBASE_ALLOW_ANY_PATH !== 'true') {
+  throw new Error(`FIREBASE_STOCKS_PATH=${stocksPath} is outside SIMULATOR/. Set FIREBASE_ALLOW_ANY_PATH=true if you really mean it.`);
+}
+
 export const config = {
-  port: Number(process.env.PORT ?? 8080),
-  ticksPerSecond: Number(process.env.TICKS_PER_SECOND ?? 3000), // 3000 = each of 3000 stocks once a second
+  ...readSettings(process.env),
   firebase: {
-    keyPath: process.env.FIREBASE_KEY_PATH ?? 'serviceAccountKey.json',
+    keyPath: process.env.FIREBASE_KEY_PATH || 'serviceAccountKey.json',
     databaseURL: process.env.FIREBASE_DATABASE_URL,
-    stocksPath: process.env.FIREBASE_STOCKS_PATH ?? 'REAL_TIME/stocks', // same path the app's staging flavor reads
+    stocksPath,
   },
 };

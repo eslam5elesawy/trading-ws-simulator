@@ -3,10 +3,9 @@ FROM node:22-slim
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
-COPY . .
-RUN chown -R node:node /app
+COPY --chown=node:node . .
 USER node
 ENV PORT=8080
 EXPOSE 8080
-# Real company names are fetched at start when REAL_STOCKS_URL is set; otherwise all stocks are generated.
-CMD ["sh", "-c", "npm run fetch-real && npm start"]
+# Fetches real company names when REAL_STOCKS_URL is set, then `exec`s Node so it receives SIGTERM directly.
+ENTRYPOINT ["./docker-entrypoint.sh"]

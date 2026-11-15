@@ -24,16 +24,3 @@ export const tickFields = (quote) => ({
   bid: quote.bid,
   ask: quote.ask,
 });
-
-// Self-check: node src/models/stock-record.js
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const { default: assert } = await import('node:assert/strict');
-  const quote = { last: 59.95, open: 59.45, close: 59, high: 59.95, low: 59.15, change: 0.95,
-    changePercent: 1.610169, volume: 5886552, bid: 59.9, ask: 59.95 };
-  assert.ok(stockKey({ symbol: '2010.SR' }) === '2010_SR', 'key');
-  const t = tickFields(quote);
-  assert.ok(t.regularMarketPrice === 59.95 && t.regularMarketVolume === 5886552, 'tick fields are plain numbers');
-  assert.ok(Object.values(t).every((v) => typeof v === 'number'), 'no wrappers on tick fields');
-  assert.ok(dailyFields(quote).regularMarketOpen.fmt === '59.45', 'daily fields keep { raw, fmt }');
-  console.log('stock-record OK');
-}

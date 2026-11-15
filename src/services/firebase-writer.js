@@ -10,7 +10,7 @@ export const safeKey = (id) => String(id).replace(/[.#$[\]/]/g, '_');
 export function createFirebaseWriter({ keyPath, databaseURL, stocksPath, flushMs = 1000 }) {
   if (!databaseURL || !existsSync(keyPath)) {
     console.warn(`Firebase disabled: need ${keyPath} and FIREBASE_DATABASE_URL`);
-    return { update() {}, stats: () => ({ enabled: false }) };
+    return { update() {}, close: async () => {}, stats: () => ({ enabled: false }) };
   }
 
   const app = initializeApp({ credential: cert(JSON.parse(readFileSync(keyPath, 'utf8'))), databaseURL });
@@ -41,12 +41,19 @@ export function createFirebaseWriter({ keyPath, databaseURL, stocksPath, flushMs
       inFlight = false;
     }
   }
-  setInterval(flush, flushMs);
+  const timer = setInterval(flush, flushMs);
 
   return {
     update(key, fields) {
       const k = safeKey(key);
       for (const [field, value] of Object.entries(fields)) pending[`${k}/${field}`] = value;
+    },
+    /** Stops the timer and writes what's still buffered, so a shutdown doesn't lose the last second. */
+    async close() {
+      clearInterval(timer);
+      while (inFlight) await new Promise((r) => setTimeout(r, 50));
+      await flush();
+      await app.delete();
     },
     stats: () => ({ enabled: true, path: stocksPath, flushMs, flushes, lastFlush, fieldsWritten, failed, pendingFields: Object.keys(pending).length }),
   };

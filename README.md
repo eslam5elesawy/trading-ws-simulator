@@ -16,7 +16,7 @@ Dummy details provider ──(company info, once)─┘   normalize+join   (visi
 ```bash
 npm ci
 npm start            # http://localhost:8080
-npm test             # self-checks + WebSocket end-to-end check
+npm test             # node:test: models, settings, tick rate/limits, WebSocket end-to-end
 ```
 
 Open http://localhost:8080 for the live stocks page. The page copies the layout of kwealth.sa/market/stocks.
@@ -49,13 +49,20 @@ This writes `data/real-stocks.json`, which is git-ignored. The server fills the 
 | server → client | `{ "type": "snapshot", "rows": [...all stocks], "summary": {...} }` | Once, on connect |
 | client → server | `{ "type": "subscribe", "keys": ["1010_SR", ...] }` | Whenever the rows on screen change |
 | server → client | `{ "type": "batch", "rows": [...changed & subscribed], "summary": {...} }` | Every second |
+| client → server | `{ "type": "ping" }` | Every 20 s (keep-alive; the Cloudflare host drops clients silent for 60 s) |
 
 The server only sends rows a client has subscribed to, so a phone showing 15 rows receives about 15 updates a second, not 3000.
 
 - When a row scrolls into view, the server sends its current value right away.
-- A subscription is capped at 500 keys.
-- Unknown keys and messages that aren't valid JSON are ignored.
-- Clients that fall far behind are skipped rather than letting memory grow.
+- A subscription is capped at 500 keys; duplicate and unknown keys are dropped; more than 5 subscribes a second are ignored.
+- Messages over 16 KB close the socket (code 1009). Connections over `MAX_CLIENTS` are refused (1013 on Node, 503 on Cloudflare).
+- Dead connections are removed: Node pings every 30 s and drops clients that don't answer; Cloudflare drops clients silent for 60 s.
+- A client that stays more than 1 MB behind for 10 s is disconnected (Node).
+
+### Simulated market rules
+
+- Prices move up to ±0.3% per tick and stay within **±10% of the previous close** (the Tadawul daily limit).
+- Every `SESSION_MINUTES` (default 480) a new trading day starts: the last price becomes the close, and volume, turnover and trade counts reset.
 
 The web page tracks visible rows with `IntersectionObserver`. The Flutter app does the same by having each list row report when it's built and when it's removed.
 
@@ -77,9 +84,13 @@ All settings are optional environment variables; see `.env.example`.
 | `PORT` | `8080` | HTTP + WebSocket port |
 | `TICKS_PER_SECOND` | `3000` | Simulated ticks per second (all stocks combined) |
 | `STOCK_COUNT` | `3000` | Total stocks, real + generated |
+| `SESSION_MINUTES` | `480` | Length of a simulated trading day |
+| `MAX_CLIENTS` | `500` | Maximum WebSocket clients at once |
 | `REAL_STOCKS_URL` | – | Source for `npm run fetch-real` |
 | `FIREBASE_DATABASE_URL`, `FIREBASE_KEY_PATH` | – | Firebase writes are on only when both are set. **Never commit the key file.** |
-| `FIREBASE_STOCKS_PATH` | `REAL_TIME/stocks` | Where stocks are written in the database |
+| `FIREBASE_STOCKS_PATH` | `SIMULATOR/stocks` | Where stocks are written. A path outside `SIMULATOR/` also needs `FIREBASE_ALLOW_ANY_PATH=true`, because the simulator overwrites prices there. `npm run firebase:cleanup` deletes the generated `1xxxx_SR` stocks afterwards. |
+
+Invalid numbers (e.g. `STOCK_COUNT=abc`) stop the server at startup with a clear message.
 
 ## Endpoints
 

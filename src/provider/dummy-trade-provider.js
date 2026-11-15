@@ -9,33 +9,62 @@ function riyadhTimestamp(date = new Date()) {
   return local.replace('Z', '000+03:00');
 }
 
+const DAILY_LIMIT = 0.1; // Tadawul main market: price can move at most ±10% from the previous close in a day
+const MAX_OWED_SECONDS = 1; // after a long pause, catch up at most one second of ticks, not one huge burst
+
 export class DummyTradeProvider extends EventEmitter {
-  #state = new Map(); // requestedId -> latest tick we sent
+  #state = new Map(); // requestedId -> latest tick we sent (this trading session)
   #timer;
+  #sessionTimer;
   #instruments;
 
   /** @param universe instruments from buildInstruments(); only ids and prices are used here */
   constructor(universe) {
     super();
+    if (!universe?.length) throw new Error('DummyTradeProvider needs at least one instrument');
     // The trade provider only knows ids and prices, never names/sectors (that's the details provider's job).
     this.#instruments = universe.map((u) => ({ requestedId: u.details.isin, close: u.close }));
   }
 
-  start(ticksPerSecond = 50) {
-    // Timers can't fire 1000s of times a second, so emit a burst every 100ms instead.
-    // Round-robin, not random: at ticksPerSecond = stock count, every stock ticks exactly once a second.
-    const perBurst = Math.max(1, Math.round(ticksPerSecond / 10));
+  /**
+   * @param ticksPerSecond total ticks per second across all instruments
+   * @param sessionMinutes length of a simulated trading day; then closes roll forward and totals reset
+   */
+  start(ticksPerSecond, { sessionMinutes = 480 } = {}) {
+    this.stop();
+    // Timers can't fire 1000s of times a second, so emit a burst every 100ms, sized by the real elapsed time
+    // (carrying the fraction), so low rates are exact and timer lag doesn't lose ticks.
+    // Round-robin, not random: at ticksPerSecond = stock count, every stock ticks once a second.
     let cursor = 0;
+    let last = performance.now();
+    let owed = 0;
     this.#timer = setInterval(() => {
-      for (let i = 0; i < perBurst; i++) {
+      const now = performance.now();
+      owed = Math.min(owed + ((now - last) / 1000) * ticksPerSecond, ticksPerSecond * MAX_OWED_SECONDS);
+      last = now;
+      const n = Math.floor(owed);
+      owed -= n;
+      for (let i = 0; i < n; i++) {
         const inst = this.#instruments[cursor++ % this.#instruments.length];
         this.emit('message', { data: { startStream: [this.#nextTick(inst)] } });
       }
     }, 100);
+    this.#sessionTimer = setInterval(() => this.newSession(), sessionMinutes * 60_000);
   }
 
   stop() {
     clearInterval(this.#timer);
+    clearInterval(this.#sessionTimer);
+  }
+
+  /** Starts a new trading day: today's last price becomes the close, totals and day range reset. */
+  newSession() {
+    for (const inst of this.#instruments) {
+      const prev = this.#state.get(inst.requestedId);
+      if (prev) inst.close = prev.last.value;
+    }
+    this.#state.clear();
+    this.emit('session');
   }
 
   #nextTick({ requestedId, close }) {
@@ -43,9 +72,10 @@ export class DummyTradeProvider extends EventEmitter {
     const ts = riyadhTimestamp();
     const at = (value, extra = {}) => ({ value, ...extra, timestamp: ts });
 
-    // Random walk: move up to ±0.3% from the previous last price.
+    // Random walk: move up to ±0.3% from the previous last price, within the daily limit.
     const prevLast = prev ? prev.last.value : close;
-    const last = round(prevLast * (1 + (Math.random() - 0.5) * 0.006));
+    const walked = prevLast * (1 + (Math.random() - 0.5) * 0.006);
+    const last = round(Math.min(close * (1 + DAILY_LIMIT), Math.max(close * (1 - DAILY_LIMIT), walked)));
     const size = 1 + Math.floor(Math.random() * 1000);
     const netChange = round(last - close);
     const pct = round((netChange / close) * 100, 6);

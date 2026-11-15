@@ -4,16 +4,21 @@ import { DurableObject } from 'cloudflare:workers';
 import realStocks from '../data/real-stocks.json';
 import { buildInstruments } from '../src/provider/instruments.js';
 import { createMarket, staticRow, liveRow } from '../src/core/market.js';
-import { createLiveFeedCore } from '../src/core/live-feed-core.js';
+import { createLiveFeedCore, MAX_MESSAGE_BYTES } from '../src/core/live-feed-core.js';
+import { readSettings } from '../src/core/settings.js';
 
 const BATCH_MS = 1000;
+// Workers have no protocol-level ping we can watch, so clients send { type: 'ping' } every 20 s and anyone
+// silent for 60 s is dropped. Otherwise one half-open socket would keep the market ticking (and the quota burning).
+const MAX_IDLE_MS = 60_000;
 
 // One instance for everyone, so all clients see the same market.
 export class Market extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    this.settings = readSettings(env);
     this.feed = createLiveFeedCore();
-    this.market = createMarket(buildInstruments(realStocks, Number(env.STOCK_COUNT ?? 3000)), {
+    this.market = createMarket(buildInstruments(realStocks, this.settings.stockCount), {
       onDetails: (key, details) => this.feed.setStatic(key, staticRow(details)),
       onQuote: (key, quote) => this.feed.setLive(key, liveRow(quote)),
     });
@@ -24,8 +29,12 @@ export class Market extends DurableObject {
   #start() {
     if (this.running) return;
     this.running = true;
-    this.market.start(Number(this.env.TICKS_PER_SECOND ?? 3000));
-    this.timer = setInterval(() => this.feed.flush(), BATCH_MS);
+    this.market.start(this.settings.ticksPerSecond, { sessionMinutes: this.settings.sessionMinutes });
+    this.timer = setInterval(() => {
+      this.feed.closeIdle(MAX_IDLE_MS);
+      this.feed.flush();
+      this.#stopIfIdle();
+    }, BATCH_MS);
   }
 
   #stopIfIdle() {
@@ -41,17 +50,28 @@ export class Market extends DurableObject {
     }
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket upgrade', { status: 426 });
 
+    if (this.feed.clientCount() >= this.settings.maxClients) return new Response('Server busy, try again later', { status: 503 });
+
     const [clientSocket, server] = Object.values(new WebSocketPair());
     server.accept();
     this.#start(); // before addClient, so the snapshot already has every stock
-    const client = this.feed.addClient((msg) => {
-      try {
-        server.send(JSON.stringify(msg));
-      } catch {
-        // socket already closed; the close handler removes it
+    const client = this.feed.addClient(
+      (msg) => {
+        try {
+          server.send(JSON.stringify(msg));
+        } catch {
+          // socket already closed; the close handler removes it
+        }
+      },
+      () => server.close(1001, 'Idle timeout'),
+    );
+    server.addEventListener('message', (e) => {
+      if (typeof e.data !== 'string' || e.data.length > MAX_MESSAGE_BYTES) {
+        server.close(1009, 'Message too big'); // 1009 = message too big
+        return;
       }
+      client.receive(e.data);
     });
-    server.addEventListener('message', (e) => client.receive(typeof e.data === 'string' ? e.data : ''));
     const done = () => {
       client.remove();
       this.#stopIfIdle();

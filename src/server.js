@@ -1,5 +1,6 @@
 import express from 'express';
 import { createServer } from 'node:http';
+import { join } from 'node:path';
 import { config } from './config.js';
 import { createMarket, staticRow, liveRow } from './core/market.js';
 import { loadInstruments } from './provider/load-instruments.js';
@@ -11,10 +12,10 @@ import { createLiveFeed } from './services/live-feed.js';
 const app = express();
 const httpServer = createServer(app); // one port: Express serves HTTP, ws takes the /ws upgrade
 const firebase = createFirebaseWriter(config.firebase);
-const feed = createLiveFeed(httpServer);
-const seenToday = new Set(); // stocks whose daily Firebase fields were already written
+const feed = createLiveFeed(httpServer, { maxClients: config.maxClients });
+const seenToday = new Set(); // stocks whose daily Firebase fields were written this trading session
 
-const market = createMarket(loadInstruments(), {
+const market = createMarket(loadInstruments(config.stockCount), {
   onDetails(key, details) {
     firebase.update(key, details);
     feed.setStatic(key, staticRow(details));
@@ -27,14 +28,35 @@ const market = createMarket(loadInstruments(), {
     firebase.update(key, tickFields(quote));
     feed.setLive(key, liveRow(quote));
   },
+  onSession() {
+    seenToday.clear(); // new open/previous close for every stock
+  },
 });
 
-app.use(express.json());
-app.use(express.static(new URL('../public', import.meta.url).pathname)); // the stocks page at /
+// import.meta.dirname is a real file path, so folders with spaces (%20 in URLs) still work.
+app.use(express.static(join(import.meta.dirname, '../public'))); // the stocks page at /
 app.use(healthRoutes(() => ({ ...market.stats(), feed: feed.stats(), firebase: firebase.stats() })));
 
 httpServer.listen(config.port, () => {
-  console.log(`Page  http://localhost:${config.port}/`);
-  console.log(`WS    ws://localhost:${config.port}/ws`);
-  market.start(config.ticksPerSecond);
+  const { port } = httpServer.address();
+  console.log(`Page  http://localhost:${port}/`);
+  console.log(`WS    ws://localhost:${port}/ws`);
+  market.start(config.ticksPerSecond, { sessionMinutes: config.sessionMinutes });
 });
+
+// Stop cleanly on `docker stop`, Ctrl+C or a platform restart: no new ticks, last Firebase batch written.
+let stopping = false;
+async function shutdown(signal) {
+  if (stopping) return;
+  stopping = true;
+  console.log(`${signal}: shutting down`);
+  const forceExit = setTimeout(() => process.exit(1), 10_000);
+  forceExit.unref();
+  market.stop();
+  feed.close();
+  httpServer.close();
+  await firebase.close();
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

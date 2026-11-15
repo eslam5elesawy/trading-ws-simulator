@@ -164,12 +164,23 @@ function scheduleSubscribe() {
 
 // ---- ticker (first 20 stocks, also subscribed) ----
 let tickerKeys = [];
+// Built with textContent, never innerHTML: symbols come from an external snapshot and could contain markup.
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text != null) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
 function renderTicker() {
   const items = tickerKeys.map((k) => {
     const d = rowsByKey.get(k).data;
-    return `<span><b>${d.symbol}</b>${fix(d.price)} <span class="${sign(d.change)}">${d.change >= 0 ? '↗' : '↘'} ${fix(Math.abs(d.changePercent ?? 0))}%</span></span>`;
-  }).join('');
-  $('ticker').innerHTML = items + items; // doubled so the CSS loop is seamless
+    const item = el('span');
+    item.append(el('b', d.symbol), `${fix(d.price)} `,
+      el('span', `${d.change >= 0 ? '↗' : '↘'} ${fix(Math.abs(d.changePercent ?? 0))}%`, sign(d.change)));
+    return item;
+  });
+  $('ticker').replaceChildren(...items, ...items.map((n) => n.cloneNode(true))); // doubled so the CSS loop is seamless
 }
 
 // ---- filters ----
@@ -197,8 +208,14 @@ function renderSummary(s) {
 // ---- socket ----
 function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  ws.onopen = () => { $('dot').classList.add('on'); $('statusText').textContent = 'Live'; };
+  let ping;
+  ws.onopen = () => {
+    $('dot').classList.add('on'); $('statusText').textContent = 'Live';
+    // Keep-alive: the Cloudflare host drops clients silent for 60 s (they may be half-open connections).
+    ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send('{"type":"ping"}'), 20000);
+  };
   ws.onclose = () => {
+    clearInterval(ping);
     $('dot').classList.remove('on'); $('statusText').textContent = 'Reconnecting…';
     setTimeout(connect, 2000);
   };
@@ -222,7 +239,14 @@ function onSnapshot({ rows, summary }) {
   for (const { tr } of rowsByKey.values()) observer.observe(tr);
 
   const sectors = [...new Set(rows.map((r) => r.sector))].sort();
-  $('sector').innerHTML = '<option value="">All Sectors</option>' + sectors.map((s) => `<option value="${s}">${prettySector(s)}</option>`).join('');
+  const options = sectors.map((s) => {
+    const o = el('option', prettySector(s));
+    o.value = s;
+    return o;
+  });
+  const all = el('option', 'All Sectors');
+  all.value = '';
+  $('sector').replaceChildren(all, ...options);
   tickerKeys = rows.slice(0, 20).map((r) => r.key);
   renderTicker();
   renderSummary(summary);
