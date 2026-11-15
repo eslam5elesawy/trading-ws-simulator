@@ -5,7 +5,6 @@ import { config } from './config.js';
 import { createMarket, staticRow, liveRow } from './core/market.js';
 import { loadInstruments } from './provider/load-instruments.js';
 import { dailyFields, tickFields } from './models/stock-record.js';
-import { healthRoutes } from './routes/health.routes.js';
 import { createFirebaseWriter } from './services/firebase-writer.js';
 import { createLiveFeed } from './services/live-feed.js';
 
@@ -35,7 +34,7 @@ const market = createMarket(loadInstruments(config.stockCount), {
 
 // import.meta.dirname is a real file path, so folders with spaces (%20 in URLs) still work.
 app.use(express.static(join(import.meta.dirname, '../public'))); // the stocks page at /
-app.use(healthRoutes(() => ({ ...market.stats(), feed: feed.stats(), firebase: firebase.stats() })));
+app.get('/health', (req, res) => res.json({ status: 'ok', ...market.stats(), feed: feed.stats(), firebase: firebase.stats() }));
 
 httpServer.listen(config.port, () => {
   const { port } = httpServer.address();

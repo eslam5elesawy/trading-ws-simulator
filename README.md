@@ -16,7 +16,7 @@ Dummy details provider ──(company info, once)─┘   normalize+join   (visi
 ```bash
 npm ci               # Node 24.12+
 npm start            # http://localhost:8080
-npm test             # node:test: models, settings, tick rate/limits, WebSocket end-to-end
+npm test             # node:test: models, import, simulator, feed core, Node server, Cloudflare Worker (wrangler dev), page (installed Chrome)
 ```
 
 Open http://localhost:8080 for the live stocks page. The page copies the layout of kwealth.sa/market/stocks.
@@ -49,7 +49,7 @@ REAL_STOCKS_URL=https://<your-db>/REAL_TIME/stocks.json npm run fetch-real
 | server → client | `{ "type": "snapshot", "rows": [...all stocks], "summary": {...} }` | Once, on connect |
 | client → server | `{ "type": "subscribe", "keys": ["1010_SR", ...] }` | Whenever the rows on screen change |
 | server → client | `{ "type": "batch", "rows": [...changed & subscribed], "summary": {...} }` | Every second, and right after a subscribe for rows that just came into view (same shape, always with `summary`) |
-| client → server | `{ "type": "ping" }` | Every 20 s (keep-alive; the Cloudflare host drops clients silent for 60 s) |
+| client → server | `{ "type": "ping" }` | Every 20 s (keep-alive; the Cloudflare host drops clients silent for 150 s) |
 
 The server only sends rows a client has subscribed to, so a phone showing 15 rows receives about 15 updates a second, not 3000.
 
@@ -58,7 +58,7 @@ The server only sends rows a client has subscribed to, so a phone showing 15 row
 - A client that misses a batch (too far behind) gets all its subscribed rows in the next batch it receives.
 - A subscription is capped at 500 keys; duplicate and unknown keys are dropped; more than 5 subscribes a second are ignored.
 - Messages over 16 KB close the socket (code 1009). Connections over `MAX_CLIENTS` are refused (1013 on Node, 503 on Cloudflare).
-- Dead connections are removed: Node pings every 30 s and drops clients that don't answer; Cloudflare drops clients silent for 60 s.
+- Dead connections are removed: Node pings every 30 s and drops clients that don't answer; Cloudflare drops clients silent for 150 s.
 - A client that stays more than 1 MB behind for 10 s is disconnected (Node).
 
 ### Simulated market rules
@@ -123,7 +123,6 @@ npm run cf:dev                         # run it locally in Cloudflare's runtime
 ## Other hosts
 
 - **Any Docker host:** use the root `Dockerfile`. The server listens on `$PORT`.
-- **Render:** `render.yaml` sets up a free web service, but Render asks for a card to verify your identity.
 
 ## Flutter app
 

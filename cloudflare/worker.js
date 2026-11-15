@@ -9,8 +9,9 @@ import { readSettings } from '../src/core/settings.js';
 
 const BATCH_MS = 1000;
 // Workers have no protocol-level ping we can watch, so clients send { type: 'ping' } every 20 s and anyone
-// silent for 60 s is dropped. Otherwise one half-open socket would keep the market ticking (and the quota burning).
-const MAX_IDLE_MS = 60_000;
+// silent for 150 s is dropped. Otherwise one half-open socket would keep the market ticking (and the quota burning).
+// Not 60 s: browsers slow timers in hidden tabs to about once a minute, which would make those tabs flap.
+const MAX_IDLE_MS = 150_000;
 
 // One instance for everyone, so all clients see the same market.
 export class Market extends DurableObject {
@@ -56,9 +57,9 @@ export class Market extends DurableObject {
     server.accept();
     this.#start(); // before addClient, so the snapshot already has every stock
     const client = this.feed.addClient(
-      (msg) => {
+      (text) => {
         try {
-          server.send(JSON.stringify(msg));
+          server.send(text);
           return true;
         } catch {
           return false; // socket already closed; the close handler removes it

@@ -4,6 +4,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --chown=node:node . .
+# WORKDIR is root-owned; the importer writes data/ at startup, so give it to the app user.
+RUN mkdir -p data && chown node:node data
 USER node
 ENV PORT=8080
 EXPOSE 8080

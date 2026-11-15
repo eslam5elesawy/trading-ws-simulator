@@ -2,53 +2,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
 import { cpSync, mkdtempSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { WebSocket } from 'ws';
+import { startServer, connect, waitFor, ROOT, STOCKS } from './helpers/server.js';
 
-const STOCKS = 300;
-const ROOT = join(import.meta.dirname, '..');
-
-const freePort = () => new Promise((resolve) => {
-  const s = createServer().listen(0, () => {
-    const { port } = s.address();
-    s.close(() => resolve(port));
-  });
-});
-
-async function startServer(cwd, env = {}) {
-  const port = await freePort();
-  const proc = spawn(process.execPath, ['src/server.js'], {
-    cwd,
-    env: { ...process.env, PORT: String(port), STOCK_COUNT: String(STOCKS), TICKS_PER_SECOND: String(STOCKS), FIREBASE_DATABASE_URL: '', ...env },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  await new Promise((resolve, reject) => {
-    proc.stdout.on('data', (d) => d.toString().includes('WS') && resolve());
-    proc.on('exit', (code) => reject(new Error(`server exited with ${code}`)));
-  });
-  return { port, proc };
-}
-
-function connect(port) {
-  const ws = new WebSocket(`ws://localhost:${port}/ws`);
-  ws.messages = [];
-  ws.on('message', (m) => ws.messages.push(JSON.parse(m)));
-  ws.closed = new Promise((resolve) => ws.on('close', (code) => resolve(code)));
-  return new Promise((resolve, reject) => ws.on('open', () => resolve(ws)).on('error', reject));
-}
-
-async function waitFor(ws, pred) {
-  for (let i = 0; i < 50; i++) {
-    const found = ws.messages.find(pred);
-    if (found) return found;
-    await sleep(100);
-  }
-  throw new Error('expected message never arrived');
-}
 
 let server;
 before(async () => { server = await startServer(ROOT); });

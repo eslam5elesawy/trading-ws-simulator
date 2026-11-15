@@ -10,17 +10,20 @@
 
 const MAX_SUBSCRIBED = 500; // a screen shows a few dozen rows; cap protects the server from huge requests
 export const MAX_MESSAGE_BYTES = 16 * 1024; // a 500-key subscribe is a few KB
-const SUBSCRIBES_PER_SECOND = 5; // scrolling sends one per settle; more than this is spam and is ignored
+const SUBSCRIBES_PER_SECOND = 5; // more than this in a second waits for the next flush (latest one wins)
 
 export function createLiveFeedCore() {
   const rows = new Map(); // key -> latest row
   const dirty = new Set(); // keys changed since the last batch
-  const clients = new Map(); // client id -> { send, close, subs, lastSeen, subscribe rate window }
+  const clients = new Map(); // client id -> { send, close, subs, lastSeen, rate window, pending subscribe, resync }
   let nextId = 1;
+  let cachedSummary = null; // recomputed at most once per flush (it walks every row)
+  let cachedSnapshot = null; // snapshot JSON shared by all clients connecting between flushes
 
   const live = (r) => ({ key: r.key, price: r.price, change: r.change, changePercent: r.changePercent, volume: r.volume, bid: r.bid });
 
   function summary() {
+    if (cachedSummary) return cachedSummary;
     let gainers = 0;
     let losers = 0;
     let totalVolume = 0;
@@ -31,21 +34,38 @@ export function createLiveFeedCore() {
       totalVolume += r.volume ?? 0;
       marketCap += r.marketCap ?? 0;
     }
-    return { gainers, losers, totalVolume, marketCap, active: rows.size };
+    cachedSummary = { gainers, losers, totalVolume, marketCap, active: rows.size };
+    return cachedSummary;
+  }
+
+  const invalidate = () => {
+    cachedSummary = null;
+    cachedSnapshot = null;
+  };
+
+  /** Replaces a client's subscription and sends the rows that just came into view. */
+  function applySubscribe(client, keyList) {
+    const keys = [...new Set(keyList)].filter((k) => typeof k === 'string' && rows.has(k)).slice(0, MAX_SUBSCRIBED);
+    const previous = client.subs;
+    client.subs = new Set(keys);
+    // Rows that just scrolled into view get their current values now, not at the next batch.
+    const added = keys.filter((k) => !previous.has(k)).map((k) => live(rows.get(k)));
+    if (added.length && client.send(JSON.stringify({ type: 'batch', rows: added, summary: summary() })) === false) client.resync = true;
   }
 
   return {
     /**
-     * @param send (msgObject) => boolean|void; return false when the message was not delivered (e.g. the client is
+     * @param send (jsonText) => boolean|void; return false when the message was not delivered (e.g. the client is
      *   too far behind). The client then gets every subscribed row in its next delivered batch, so a skipped
      *   update can't leave it showing an old price. Must not throw for a dead client.
      * @param close () => void; the host closes the socket (used for idle clients)
      */
     addClient(send, close = () => {}) {
       const id = nextId++;
-      const client = { send, close, subs: new Set(), lastSeen: Date.now(), windowStart: 0, windowCount: 0, resync: false };
+      const client = { send, close, subs: new Set(), lastSeen: Date.now(), windowStart: 0, windowCount: 0, pending: null, resync: false };
       clients.set(id, client);
-      send({ type: 'snapshot', rows: [...rows.values()], summary: summary() });
+      cachedSnapshot ??= JSON.stringify({ type: 'snapshot', rows: [...rows.values()], summary: summary() });
+      send(cachedSnapshot);
 
       return {
         receive(text) {
@@ -64,14 +84,12 @@ export function createLiveFeedCore() {
             client.windowStart = now;
             client.windowCount = 0;
           }
-          if (++client.windowCount > SUBSCRIBES_PER_SECOND) return;
-
-          const keys = [...new Set(msg.keys)].filter((k) => typeof k === 'string' && rows.has(k)).slice(0, MAX_SUBSCRIBED);
-          const previous = client.subs;
-          client.subs = new Set(keys);
-          // Rows that just scrolled into view get their current values now, not at the next batch.
-          const added = keys.filter((k) => !previous.has(k)).map((k) => live(rows.get(k)));
-          if (added.length && send({ type: 'batch', rows: added, summary: summary() }) === false) client.resync = true;
+          if (++client.windowCount > SUBSCRIBES_PER_SECOND) {
+            client.pending = msg.keys; // over the limit: not dropped, the latest one is applied at the next flush
+            return;
+          }
+          client.pending = null;
+          applySubscribe(client, msg.keys);
         },
         remove() {
           clients.delete(id);
@@ -79,20 +97,28 @@ export function createLiveFeedCore() {
       };
     },
 
-    /** Call once a second: sends each client only its changed, subscribed rows. */
+    /** Call once a second: applies held-back subscribes, then sends each client only its changed, subscribed rows. */
     flush() {
+      for (const client of clients.values()) {
+        if (!client.pending) continue;
+        const keys = client.pending;
+        client.pending = null;
+        applySubscribe(client, keys);
+      }
       if (dirty.size === 0) return;
+      invalidate();
       const sum = summary();
       for (const client of clients.values()) {
         const changed = [];
         for (const key of client.subs) if (client.resync || dirty.has(key)) changed.push(live(rows.get(key)));
-        client.resync = client.send({ type: 'batch', rows: changed, summary: sum }) === false;
+        client.resync = client.send(JSON.stringify({ type: 'batch', rows: changed, summary: sum })) === false;
       }
       dirty.clear();
     },
 
     setStatic(key, fields) {
       rows.set(key, { ...rows.get(key), key, ...fields });
+      invalidate();
     },
 
     setLive(key, fields) {

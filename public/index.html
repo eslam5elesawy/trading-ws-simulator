@@ -311,7 +311,7 @@ function connect() {
     attempts = 0;
     lastSent = '';
     setStatus('wait', loaded ? 'Refreshing…' : 'Loading…'); // "Live" only once a snapshot is on screen
-    // Keep-alive: the Cloudflare host drops clients silent for 60 s (they may be half-open connections).
+    // Keep-alive: the Cloudflare host drops clients silent for 150 s (they may be half-open connections).
     ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send('{"type":"ping"}'), 20000);
   };
   ws.onclose = () => {
