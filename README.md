@@ -14,7 +14,7 @@ Dummy details provider ──(company info, once)─┘   normalize+join   (visi
 ## Quick start
 
 ```bash
-npm ci
+npm ci               # Node 24.12+
 npm start            # http://localhost:8080
 npm test             # node:test: models, settings, tick rate/limits, WebSocket end-to-end
 ```
@@ -27,7 +27,7 @@ To use real Saudi company names and sectors instead of only generated stocks, ru
 REAL_STOCKS_URL=https://<your-db>/REAL_TIME/stocks.json npm run fetch-real
 ```
 
-This writes `data/real-stocks.json`, which is git-ignored. The server fills the rest of the list up to `STOCK_COUNT` with generated `Test Company 1xxxx` stocks. Prices are always simulated.
+`REAL_STOCKS_URL` can also go in `.env`. The importer accepts prices as plain numbers or `{ raw }`, skips records without a symbol or positive price, keeps the first of any duplicate symbol, and **fails without touching the last good snapshot** if the response is empty or isn't a set of records. This writes `data/real-stocks.json`, which is git-ignored. The server fills the rest of the list up to `STOCK_COUNT` with generated `Test Company 1xxxx` stocks. Prices are always simulated.
 
 ## How it works
 
@@ -48,12 +48,14 @@ This writes `data/real-stocks.json`, which is git-ignored. The server fills the 
 |---|---|---|
 | server → client | `{ "type": "snapshot", "rows": [...all stocks], "summary": {...} }` | Once, on connect |
 | client → server | `{ "type": "subscribe", "keys": ["1010_SR", ...] }` | Whenever the rows on screen change |
-| server → client | `{ "type": "batch", "rows": [...changed & subscribed], "summary": {...} }` | Every second |
+| server → client | `{ "type": "batch", "rows": [...changed & subscribed], "summary": {...} }` | Every second, and right after a subscribe for rows that just came into view (same shape, always with `summary`) |
 | client → server | `{ "type": "ping" }` | Every 20 s (keep-alive; the Cloudflare host drops clients silent for 60 s) |
 
 The server only sends rows a client has subscribed to, so a phone showing 15 rows receives about 15 updates a second, not 3000.
 
+- Every stock has a price in the very first snapshot.
 - When a row scrolls into view, the server sends its current value right away.
+- A client that misses a batch (too far behind) gets all its subscribed rows in the next batch it receives.
 - A subscription is capped at 500 keys; duplicate and unknown keys are dropped; more than 5 subscribes a second are ignored.
 - Messages over 16 KB close the socket (code 1009). Connections over `MAX_CLIENTS` are refused (1013 on Node, 503 on Cloudflare).
 - Dead connections are removed: Node pings every 30 s and drops clients that don't answer; Cloudflare drops clients silent for 60 s.
@@ -61,8 +63,9 @@ The server only sends rows a client has subscribed to, so a phone showing 15 row
 
 ### Simulated market rules
 
-- Prices move up to ±0.3% per tick and stay within **±10% of the previous close** (the Tadawul daily limit).
-- Every `SESSION_MINUTES` (default 480) a new trading day starts: the last price becomes the close, and volume, turnover and trade counts reset.
+- Prices move up to ±0.3% per tick (kept at full precision, so low-priced stocks move too) and stay within **±10% of the previous close** (the Tadawul daily limit). Bids are never negative.
+- Raw ticks only contain fields the simulator actually models.
+- Trading days follow the clock (`floor(now / SESSION_MINUTES)`, default 480), so every host agrees on the boundary. At each boundary the last price becomes the close, and the open, day range, volume, turnover and trade counts reset.
 
 The web page tracks visible rows with `IntersectionObserver`. The Flutter app does the same by having each list row report when it's built and when it's removed.
 
@@ -83,7 +86,7 @@ All settings are optional environment variables; see `.env.example`.
 |---|---|---|
 | `PORT` | `8080` | HTTP + WebSocket port |
 | `TICKS_PER_SECOND` | `3000` | Simulated ticks per second (all stocks combined) |
-| `STOCK_COUNT` | `3000` | Total stocks, real + generated |
+| `STOCK_COUNT` | `3000` | Exact total: the first `STOCK_COUNT` real stocks, then generated ones to fill the gap |
 | `SESSION_MINUTES` | `480` | Length of a simulated trading day |
 | `MAX_CLIENTS` | `500` | Maximum WebSocket clients at once |
 | `REAL_STOCKS_URL` | – | Source for `npm run fetch-real` |

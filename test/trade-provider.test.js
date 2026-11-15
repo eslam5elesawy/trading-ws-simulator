@@ -47,3 +47,54 @@ test('prices stay within ±10% of the close, and a new session resets the day (r
   assert.ok(Math.abs(next.close.value - lastPrice) < close * 0.01, 'close rolled forward to the last price');
   assert.ok(next.numberOfTrades.value < 1000, 'totals reset');
 });
+
+test('every stock gets a quote immediately on start (#7)', () => {
+  const p = new DummyTradeProvider(buildInstruments([], 40));
+  const ticks = [];
+  p.on('message', (m) => ticks.push(...m.data.startStream));
+  p.start(1);
+  p.stop();
+  assert.equal(new Set(ticks.map((t) => t.requestedId)).size, 40);
+});
+
+test('low-priced stocks still move (#34) and bids are never negative (#27)', async () => {
+  const mk = (close) => [{ details: { isin: `L${close}` }, close }];
+  const low = new DummyTradeProvider(mk(1.25));
+  low.start(2000);
+  const prices = new Set((await ticksIn(low, 1500)).map((t) => t.last.value));
+  low.stop();
+  assert.ok(prices.size > 1, `price never moved from 1.25: ${[...prices]}`);
+
+  const tiny = new DummyTradeProvider(mk(0.01));
+  tiny.start(500);
+  const ticks = await ticksIn(tiny, 500);
+  tiny.stop();
+  for (const t of ticks) assert.ok(t.bestBid === null || t.bestBid.value > 0, `bid ${t.bestBid?.value}`);
+});
+
+test('raw ticks only carry fields built from the simulated stock (#28)', async () => {
+  const p = new DummyTradeProvider([{ details: { isin: 'A' }, close: 12 }, { details: { isin: 'B' }, close: 80 }]);
+  const ticks = [];
+  p.on('message', (m) => ticks.push(...m.data.startStream));
+  p.start(1);
+  p.stop();
+  for (const t of ticks) {
+    assert.equal(t.marketCapitalisation, undefined, 'no inherited sample market cap');
+    assert.notEqual(t.close.timestamp, '2026-11-10T15:20:00.000000+03:00', 'no inherited sample close date');
+    const spread = t.bestAsk.value - t.bestBid.value;
+    assert.ok(Math.abs(t.percentageSpreadBestBidAsk.value - (spread / t.last.value) * 100) < 1e-4, 'spread % matches bid/ask');
+  }
+});
+
+test('sessions follow the clock: totals, range and open reset at the boundary (#20)', async () => {
+  const p = new DummyTradeProvider(buildInstruments([], 1));
+  let sessions = 0;
+  p.on('session', () => sessions++);
+  p.start(50, { sessionMinutes: 0.01 }); // 600 ms sessions
+  const ticks = await ticksIn(p, 1500);
+  p.stop();
+  assert.ok(sessions >= 1, 'a session boundary passed');
+  const starts = ticks.filter((t) => t.type === 'START');
+  assert.ok(starts.length >= 1);
+  for (const s of starts) assert.equal(s.numberOfTrades.value, 1, 'trade count restarts at 1');
+});

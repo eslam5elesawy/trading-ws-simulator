@@ -37,10 +37,13 @@ function generated(i, REAL, SECTORS) {
   };
 }
 
-/** @param real [{ details, close }] from data/real-stocks.json (may be empty) */
+/**
+ * @param real [{ details, close }] from data/real-stocks.json (may be empty)
+ * @param count total stocks: the first `count` real ones, then generated ones to fill the gap
+ */
 export function buildInstruments(real = [], count = 3000) {
-  const realSectors = [...new Set(real.map((r) => r.details.kwealth_sector).filter(Boolean))];
+  const used = real.slice(0, count);
+  const realSectors = [...new Set(used.map((r) => r.details.kwealth_sector).filter((s) => typeof s === 'string'))];
   const sectors = realSectors.length ? realSectors : DEFAULT_SECTORS;
-  const total = Math.max(real.length, count);
-  return [...real, ...Array.from({ length: total - real.length }, (_, i) => generated(i, real, sectors))];
+  return [...used, ...Array.from({ length: count - used.length }, (_, i) => generated(i, used, sectors))];
 }

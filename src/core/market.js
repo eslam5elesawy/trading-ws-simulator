@@ -4,14 +4,15 @@ import { DummyTradeProvider } from '../provider/dummy-trade-provider.js';
 import { DummyDetailsProvider } from '../provider/dummy-details-provider.js';
 import { normalize } from '../models/stock-quote.js';
 import { stockKey } from '../models/stock-record.js';
+import { toNumber, toText } from '../provider/reference-data.js';
 
-/** The row shape clients see (web page / app), built from a details record. */
+/** The row shape clients see (web page / app), built from a details record. Every field has a safe type. */
 export const staticRow = (details) => ({
-  symbol: details.kwealth_short_name ?? details.symbol,
+  symbol: toText(details.kwealth_short_name) ?? details.symbol,
   code: details.symbol.replace('.SR', ''),
-  name: details.longName ?? details.shortName,
-  sector: details.kwealth_sector ?? details.sector ?? '--', // raw code ('CAPITAL_GOODS'); clients prettify
-  marketCap: details.marketCap?.raw ?? null,
+  name: toText(details.longName) ?? toText(details.shortName) ?? details.symbol,
+  sector: toText(details.kwealth_sector) ?? toText(details.sector) ?? '--', // raw code ('CAPITAL_GOODS'); clients prettify
+  marketCap: toNumber(details.marketCap), // always a number or null, so the summary sum stays numeric
 });
 
 export const liveRow = (quote) => ({

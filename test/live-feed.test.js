@@ -58,6 +58,7 @@ test('snapshot, then batches with only subscribed rows', async () => {
   const ws = await connect(server.port);
   const snapshot = await waitFor(ws, (m) => m.type === 'snapshot');
   assert.equal(snapshot.rows.length, STOCKS);
+  assert.ok(snapshot.rows.every((r) => typeof r.price === 'number'), 'every stock already has a price (#7)');
 
   ws.send('not json'); // ignored, not fatal
   const keys = snapshot.rows.slice(0, 5).map((r) => r.key);

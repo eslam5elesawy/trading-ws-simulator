@@ -22,14 +22,15 @@ export function createLiveFeed(httpServer, { maxClients }) {
     let slowSince = 0;
     const client = core.addClient(
       (msg) => {
-        if (socket.readyState !== WebSocket.OPEN) return;
+        if (socket.readyState !== WebSocket.OPEN) return false;
         if (socket.bufferedAmount >= MAX_BUFFERED_BYTES) {
           slowSince ||= Date.now();
           if (Date.now() - slowSince > MAX_SLOW_MS) socket.terminate();
-          return; // skip this update; the next one replaces it
+          return false; // skipped: the core resends all subscribed rows once this client catches up
         }
         slowSince = 0;
         socket.send(JSON.stringify(msg));
+        return true;
       },
       () => socket.terminate(),
     );

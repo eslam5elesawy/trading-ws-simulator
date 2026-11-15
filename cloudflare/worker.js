@@ -59,8 +59,9 @@ export class Market extends DurableObject {
       (msg) => {
         try {
           server.send(JSON.stringify(msg));
+          return true;
         } catch {
-          // socket already closed; the close handler removes it
+          return false; // socket already closed; the close handler removes it
         }
       },
       () => server.close(1001, 'Idle timeout'),
@@ -76,7 +77,15 @@ export class Market extends DurableObject {
       client.remove();
       this.#stopIfIdle();
     };
-    server.addEventListener('close', done);
+    server.addEventListener('close', (e) => {
+      // Answer the client's close frame, so its close completes promptly instead of hanging in CLOSING.
+      try {
+        server.close(e.code === 1005 ? 1000 : e.code, e.reason);
+      } catch {
+        // already closed
+      }
+      done();
+    });
     server.addEventListener('error', done);
     return new Response(null, { status: 101, webSocket: clientSocket });
   }

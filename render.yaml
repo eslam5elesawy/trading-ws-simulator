@@ -9,7 +9,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: "22"
+        value: "24"
       - key: TICKS_PER_SECOND
         value: "3000"
       - key: STOCK_COUNT

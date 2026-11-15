@@ -4,7 +4,8 @@
 // Protocol:
 //   server -> client  { type: 'snapshot', rows: [...all stocks], summary }  once, on connect
 //   client -> server  { type: 'subscribe', keys: ['1010_SR', ...] }       whenever the visible rows change
-//   server -> client  { type: 'batch', rows: [...changed & subscribed], summary }   every second
+//   server -> client  { type: 'batch', rows: [...changed & subscribed], summary }   every second, and right after a
+//                     subscribe for rows that just came into view (same shape)
 //   client -> server  { type: 'ping' }                                   keep-alive (hosts without protocol pings)
 
 const MAX_SUBSCRIBED = 500; // a screen shows a few dozen rows; cap protects the server from huge requests
@@ -35,12 +36,14 @@ export function createLiveFeedCore() {
 
   return {
     /**
-     * @param send (msgObject) => void; must not throw for a dead client
+     * @param send (msgObject) => boolean|void; return false when the message was not delivered (e.g. the client is
+     *   too far behind). The client then gets every subscribed row in its next delivered batch, so a skipped
+     *   update can't leave it showing an old price. Must not throw for a dead client.
      * @param close () => void; the host closes the socket (used for idle clients)
      */
     addClient(send, close = () => {}) {
       const id = nextId++;
-      const client = { send, close, subs: new Set(), lastSeen: Date.now(), windowStart: 0, windowCount: 0 };
+      const client = { send, close, subs: new Set(), lastSeen: Date.now(), windowStart: 0, windowCount: 0, resync: false };
       clients.set(id, client);
       send({ type: 'snapshot', rows: [...rows.values()], summary: summary() });
 
@@ -68,7 +71,7 @@ export function createLiveFeedCore() {
           client.subs = new Set(keys);
           // Rows that just scrolled into view get their current values now, not at the next batch.
           const added = keys.filter((k) => !previous.has(k)).map((k) => live(rows.get(k)));
-          if (added.length) send({ type: 'batch', rows: added });
+          if (added.length && send({ type: 'batch', rows: added, summary: summary() }) === false) client.resync = true;
         },
         remove() {
           clients.delete(id);
@@ -82,8 +85,8 @@ export function createLiveFeedCore() {
       const sum = summary();
       for (const client of clients.values()) {
         const changed = [];
-        for (const key of client.subs) if (dirty.has(key)) changed.push(live(rows.get(key)));
-        client.send({ type: 'batch', rows: changed, summary: sum });
+        for (const key of client.subs) if (client.resync || dirty.has(key)) changed.push(live(rows.get(key)));
+        client.resync = client.send({ type: 'batch', rows: changed, summary: sum }) === false;
       }
       dirty.clear();
     },
